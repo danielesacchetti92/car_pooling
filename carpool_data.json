@@ -1,0 +1,29 @@
+[
+    {
+        "data": "2026-10-14",
+        "autista": "Andrea s.",
+        "passeggeri": [
+            "Jack",
+            "Miriam",
+            "Sacco"
+        ],
+        "tot_passeggeri": 3
+    },
+    {
+        "data": "2026-10-13",
+        "autista": "Jack",
+        "passeggeri": [
+            "Sacco",
+            "Andrea s."
+        ],
+        "tot_passeggeri": 2
+    },
+    {
+        "data": "2026-10-12",
+        "autista": "Jack",
+        "passeggeri": [
+            "Sacco"
+        ],
+        "tot_passeggeri": 1
+    }
+]
