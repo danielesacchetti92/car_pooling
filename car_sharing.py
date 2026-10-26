@@ -178,15 +178,26 @@ if not df_records.empty:
 if not records:
   st.info("Nessun viaggio registrato al momento.")
 else:
-  # Usiamo tutti i partecipanti registrati nel gruppo per la matrice
-  partecipanti = sorted(list(set(membri + [r["autista"] for r in records])))
+  # Raccogliamo TUTTI i partecipanti unici (sia dai membri attivi che dai viaggi salvati)
+  tutti_nomi = set(membri)
+  for r in records:
+    if r["autista"]:
+      tutti_nomi.add(r["autista"])
+    for pas in r["passeggeri"]:
+      if pas:
+        tutti_nomi.add(pas)
+
+  partecipanti = sorted(list(tutti_nomi))
+  
+  # Inizializziamo il dizionario dei debiti in modo sicuro
   debiti = {p: {p2: 0 for p2 in partecipanti} for p in partecipanti}
 
   for r in records:
     aut = r["autista"]
     for pas in r["passeggeri"]:
       if aut and pas and aut != pas:
-        debiti[aut][pas] += 1
+        if aut in debiti and pas in debiti[aut]:
+          debiti[aut][pas] += 1
 
   matrice_data = []
   for debitore in partecipanti:
