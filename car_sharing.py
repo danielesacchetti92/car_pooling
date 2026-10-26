@@ -67,8 +67,8 @@ with st.form("carpool_form"):
       }])
 
       df_aggiornato = pd.concat([df_records, nuova_riga], ignore_index=True)
-      conn.update(data=df_aggiornato)
-
+      conn.update(worksheet="Foglio1", data=df_aggiornato)
+        
       st.success("Viaggio salvato con successo su Google Sheets!")
       st.rerun()
 
