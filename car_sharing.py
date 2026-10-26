@@ -1,15 +1,16 @@
 from datetime import date
+import sqlite3
 import pandas as pd
 import streamlit as st
-import sqlite3
 
-# Connessione al database SQLite locale (lo crea da solo se non esiste)
+# Connessione al database SQLite locale
 DB_FILE = "carpool.db"
 
 
 def init_db():
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
+  # Tabella viaggi
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS viaggi (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,7 +20,25 @@ def init_db():
             tot_passeggeri INTEGER
         )
     """)
+  # Tabella partecipanti (con alcuni colleghi di default come esempio)
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS partecipanti (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT UNIQUE
+        )
+    """)
   conn.commit()
+
+  # Inseriamo qualche partecipante di default se la tabella è vuota
+  cursor.execute("SELECT COUNT(*) FROM partecipanti")
+  if cursor.fetchone()[0] == 0:
+    default_users = ["Daniele", "Andrea", "Giacomo", "Miriam"]
+    for u in default_users:
+      cursor.execute(
+          "INSERT OR IGNORE INTO partecipanti (nome) VALUES (?)", (u,)
+      )
+    conn.commit()
+
   conn.close()
 
 
@@ -31,98 +50,136 @@ st.set_page_config(
 
 st.title("🚗 Gestione Car Pooling Lavoro")
 st.write(
-    "Tieni traccia dei passaggi giornalieri in modo semplice e senza"
-    " configurazioni!"
+    "Gestisci i passaggi, i partecipanti e tieni traccia dei crediti in modo"
+    " semplice!"
 )
 
 
-# Funzioni per leggere e scrivere sul DB
-def load_data():
+# Funzioni di utilità per il DB
+def load_partecipanti():
+  conn = sqlite3.connect(DB_FILE)
+  df = pd.read_sql_query("SELECT nome FROM partecipanti", conn)
+  conn.close()
+  return sorted(df["nome"].tolist()) if not df.empty else []
+
+
+def load_viaggi():
   conn = sqlite3.connect(DB_FILE)
   df = pd.read_sql_query("SELECT * FROM viaggi", conn)
   conn.close()
   return df
 
 
-def add_viaggio(data, autista, passeggeri_str, tot):
-  conn = sqlite3.connect(DB_FILE)
-  cursor = conn.cursor()
-  cursor.execute(
-      "INSERT INTO viaggi (data, autista, passeggeri, tot_passeggeri) VALUES"
-      " (?, ?, ?, ?)",
-      (data, autista, passeggeri_str, tot),
-  )
-  conn.commit()
-  conn.close()
+# --- SEZIONE 1: GESTIONE PARTECIPANTI (Aggiungi / Elimina persone) ---
+with st.expander("👥 Gestisci il gruppo (Aggiungi / Rimuovi Colleghi)"):
+  col_p1, col_p2 = st.columns(2)
 
+  with col_p1:
+    with st.form("add_user_form"):
+      nuovo_membro = st.text_input("Aggiungi nuovo collega").strip()
+      btn_add_user = st.form_submit_button("Aggiungi Persona")
+      if btn_add_user and nuovo_membro:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        try:
+          cursor.execute(
+              "INSERT INTO partecipanti (nome) VALUES (?)",
+              (nuovo_membro.capitalize(),),
+          )
+          conn.commit()
+          st.success(f"'{nuovo_membro.capitalize()}' aggiunto con successo!")
+          st.rerun()
+        except sqlite3.IntegrityError:
+          st.error("Questa persona esiste già!")
+        finally:
+          conn.close()
 
-df_records = load_data()
+  with col_p2:
+    lista_membri_corrente = load_partecipanti()
+    with st.form("del_user_form"):
+      membro_da_rimuovere = st.selectbox(
+          "Rimuovi collega", lista_membri_corrente
+      )
+      btn_del_user = st.form_submit_button("Rimuovi Persona")
+      if btn_del_user and membro_da_rimuovere:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM partecipanti WHERE nome = ?", (membro_da_rimuovere,)
+        )
+        conn.commit()
+        conn.close()
+        st.success(f"'{membro_da_rimuovere}' rimosso!")
+        st.rerun()
 
-# --- SEZIONE 1: AGGIUNGI NUOVO VIAGGIO ---
+# Ricarichiamo la lista aggiornata dei partecipanti
+membri = load_partecipanti()
+
+# --- SEZIONE 2: REGISTRATI UN NUOVO VIAGGIO ---
 st.subheader("📝 Registra il viaggio di oggi")
 
-with st.form("carpool_form"):
-  col1, col2 = st.columns(2)
-  with col1:
-    viaggio_data = st.date_input("Data", value=date.today())
-  with col2:
-    autista = st.text_input("Chi ha guidato? (Nome)").strip()
+if not membri:
+  st.warning(
+      "Aggiungi almeno un partecipante dal pannello sopra per registrare i"
+      " viaggi!"
+  )
+else:
+  with st.form("carpool_form"):
+    col1, col2 = st.columns(2)
+    with col1:
+      viaggio_data = st.date_input("Data", value=date.today())
+    with col2:
+      autista = st.selectbox("Chi ha guidato?", membri)
 
-  passeggeri_input = st.text_input(
-      "Passeggeri a bordo (separa i nomi con la virgola, es: Marco, Luca,"
-      " Anna)"
-  ).strip()
+    # I passeggeri si possono scegliere con una multiselect (escludendo l'autista)
+    passeggeri_disponibili = [m for m in membri if m != autista]
+    passeggeri_scelti = st.multiselect(
+        "Passeggeri a bordo", passeggeri_disponibili
+    )
 
-  submit_button = st.form_submit_button(label="Registra Viaggio")
+    submit_button = st.form_submit_button(label="Registra Viaggio")
 
-  if submit_button:
-    if not autista:
-      st.error("Inserisci il nome dell'autista!")
-    else:
-      passeggeri_list = [
-          p.strip().capitalize()
-          for p in passeggeri_input.split(",")
-          if p.strip()
-      ]
-      passeggeri_str = ", ".join(passeggeri_list)
-
-      add_viaggio(
-          str(viaggio_data),
-          autista.capitalize(),
-          passeggeri_str,
-          len(passeggeri_list),
+    if submit_button:
+      conn = sqlite3.connect(DB_FILE)
+      cursor = conn.cursor()
+      passeggeri_str = ", ".join(passeggeri_scelti)
+      cursor.execute(
+          "INSERT INTO viaggi (data, autista, passeggeri, tot_passeggeri) VALUES"
+          " (?, ?, ?, ?)",
+          (
+              str(viaggio_data),
+              autista,
+              passeggeri_str,
+              len(passeggeri_scelti),
+          ),
       )
-      st.success("Viaggio salvato con successo!")
+      conn.commit()
+      conn.close()
+      st.success("Viaggio registrato con successo!")
       st.rerun()
 
-# Prepariamo i record per i calcoli
+# --- SEZIONE 3: BILANCIO E DEBITI INCROCIATI ---
+st.markdown("---")
+st.subheader("📊 Bilancio Incrociato (Chi deve passaggi a chi)")
+
+df_records = load_viaggi()
 records = []
 if not df_records.empty:
   for _, row in df_records.iterrows():
     p_str = str(row["passeggeri"]) if pd.notna(row["passeggeri"]) else ""
     p_list = [p.strip() for p in p_str.split(",") if p.strip()]
     records.append({
+        "id": row["id"],
         "data": str(row["data"]),
         "autista": str(row["autista"]).strip(),
         "passeggeri": p_list,
     })
 
-# --- SEZIONE 2: BILANCIO E DEBITI INCROCIATI ---
-st.markdown("---")
-st.subheader("📊 Bilancio Incrociato (Chi deve passaggi a chi)")
-
 if not records:
-  st.info("Nessun viaggio registrato al momento. Inizia ad aggiungerne uno!")
+  st.info("Nessun viaggio registrato al momento.")
 else:
-  partecipanti = set()
-  for r in records:
-    if r["autista"]:
-      partecipanti.add(r["autista"])
-    for pas in r["passeggeri"]:
-      if pas:
-        partecipanti.add(pas)
-
-  partecipanti = sorted(list(partecipanti))
+  # Usiamo tutti i partecipanti registrati nel gruppo per la matrice
+  partecipanti = sorted(list(set(membri + [r["autista"] for r in records])))
   debiti = {p: {p2: 0 for p2 in partecipanti} for p in partecipanti}
 
   for r in records:
@@ -176,5 +233,23 @@ else:
     else:
       st.write("✨ Siete perfettamente in pari con tutti!")
 
-  with st.expander("📜 Visualizza lo storico completo"):
+  # --- SEZIONE 4: STORICO ED ELIMINAZIONE VIAGGI ---
+  st.markdown("---")
+  with st.expander("📜 Storico Viaggi ed Eliminazione"):
     st.dataframe(df_records, use_container_width=True, hide_index=True)
+
+    # Menu a tendina per eliminare un viaggio specifico tramite il suo ID
+    viaggi_ids = df_records["id"].tolist()
+    if viaggi_ids:
+      viaggio_da_eliminare = st.selectbox(
+          "Seleziona l'ID del viaggio da eliminare in caso di errore:",
+          viaggi_ids,
+      )
+      if st.button("Elimina Viaggio Selezionato"):
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM viaggi WHERE id = ?", (viaggio_da_eliminare,))
+        conn.commit()
+        conn.close()
+        st.success(f"Viaggio ID {viaggio_da_eliminare} eliminato con successo!")
+        st.rerun()
