@@ -1,7 +1,29 @@
 from datetime import date
 import pandas as pd
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
+import sqlite3
+
+# Connessione al database SQLite locale (lo crea da solo se non esiste)
+DB_FILE = "carpool.db"
+
+
+def init_db():
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS viaggi (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            data TEXT,
+            autista TEXT,
+            passeggeri TEXT,
+            tot_passeggeri INTEGER
+        )
+    """)
+  conn.commit()
+  conn.close()
+
+
+init_db()
 
 st.set_page_config(
     page_title="Car Pooling Manager", page_icon="🚗", layout="centered"
@@ -9,24 +31,29 @@ st.set_page_config(
 
 st.title("🚗 Gestione Car Pooling Lavoro")
 st.write(
-    "Tieni traccia dei passaggi giornalieri e del bilancio incrociato tra"
-    " colleghi!"
+    "Tieni traccia dei passaggi giornalieri in modo semplice e senza"
+    " configurazioni!"
 )
 
-# Connessione a Google Sheets
-conn = st.connection("gsheets", type=GSheetsConnection)
 
-
-# Funzione per caricare i dati dal foglio
+# Funzioni per leggere e scrivere sul DB
 def load_data():
-  try:
-    df = conn.read(ttl=0)  # ttl=0 per non usare la cache e leggere dati sempre freschi
-    df = df.dropna(how="all")  # rimuove righe completamente vuote
-    return df
-  except Exception as e:
-    return pd.DataFrame(
-        columns=["data", "autista", "passeggeri", "tot_passeggeri"]
-    )
+  conn = sqlite3.connect(DB_FILE)
+  df = pd.read_sql_query("SELECT * FROM viaggi", conn)
+  conn.close()
+  return df
+
+
+def add_viaggio(data, autista, passeggeri_str, tot):
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute(
+      "INSERT INTO viaggi (data, autista, passeggeri, tot_passeggeri) VALUES"
+      " (?, ?, ?, ?)",
+      (data, autista, passeggeri_str, tot),
+  )
+  conn.commit()
+  conn.close()
 
 
 df_records = load_data()
@@ -59,20 +86,16 @@ with st.form("carpool_form"):
       ]
       passeggeri_str = ", ".join(passeggeri_list)
 
-      nuova_riga = pd.DataFrame([{
-          "data": str(viaggio_data),
-          "autista": autista.capitalize(),
-          "passeggeri": passeggeri_str,
-          "tot_passeggeri": len(passeggeri_list),
-      }])
-
-      df_aggiornato = pd.concat([df_records, nuova_riga], ignore_index=True)
-      conn.update(worksheet="Foglio1", data=df_aggiornato)
-        
-      st.success("Viaggio salvato con successo su Google Sheets!")
+      add_viaggio(
+          str(viaggio_data),
+          autista.capitalize(),
+          passeggeri_str,
+          len(passeggeri_list),
+      )
+      st.success("Viaggio salvato con successo!")
       st.rerun()
 
-# Convertiamo i dati in formato lista di record per i calcoli del bilancio
+# Prepariamo i record per i calcoli
 records = []
 if not df_records.empty:
   for _, row in df_records.iterrows():
@@ -108,11 +131,6 @@ else:
       if aut and pas and aut != pas:
         debiti[aut][pas] += 1
 
-  st.markdown(
-      "#### Tabella dei Debiti/Crediti (Righe = Chi deve, Colonne = A chi"
-      " spetta il passaggio)"
-  )
-
   matrice_data = []
   for debitore in partecipanti:
     riga = {"Persona": debitore}
@@ -139,11 +157,18 @@ else:
     dettagli_personali = []
     for altro in partecipanti:
       if altro != utente_selezionato:
-        dovuti_da_te = debiti[altro][utente_selezionato] - debiti[utente_selezionato][altro]
+        dovuti_da_te = (
+            debiti[altro][utente_selezionato]
+            - debiti[utente_selezionato][altro]
+        )
         if dovuti_da_te > 0:
-          dettagli_personali.append(f"👉 Devi **{dovuti_da_te}** passaggi a **{altro}**")
+          dettagli_personali.append(
+              f"👉 Devi **{dovuti_da_te}** passaggi a **{altro}**"
+          )
         elif dovuti_da_te < 0:
-          dettagli_personali.append(f"👍 **{altro}** ti deve **{-dovuti_da_te}** passaggi")
+          dettagli_personali.append(
+              f"👍 **{altro}** ti deve **{-dovuti_da_te}** passaggi"
+          )
 
     if dettagli_personali:
       for d in dettagli_personali:
@@ -153,21 +178,3 @@ else:
 
   with st.expander("📜 Visualizza lo storico completo"):
     st.dataframe(df_records, use_container_width=True, hide_index=True)
-
-
-  # --- SEZIONE 3: STORICO VIAGGI ---
-  with st.expander("📜 Visualizza lo storico completo dei viaggi"):
-    df_history = pd.DataFrame(records)
-    if not df_history.empty:
-      # Riconvertiamo la lista passeggeri in stringa leggibile per la tabella
-      df_history["passeggeri"] = df_history["passeggeri"].apply(
-          lambda x: ", ".join(x)
-      )
-      st.dataframe(df_history, use_container_width=True, hide_index=True)
-
-      # Pulsante per cancellare l'ultimo inserimento in caso di errore
-      if st.button("Elimina l'ultimo viaggio inserito"):
-        records.pop()
-        save_data(records)
-        st.success("Ultimo viaggio eliminato!")
-        st.rerun()
