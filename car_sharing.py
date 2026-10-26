@@ -114,41 +114,40 @@ with st.expander("👥 Gestisci il gruppo (Aggiungi / Rimuovi Colleghi)"):
 
 
 # --- SEZIONE 2: REGISTRA NUOVO VIAGGIO ---
-st.subheader("📝 Registra il viaggio di oggi")
+    st.subheader("📝 Registra il viaggio di oggi")
 
-if not membri:
-  st.warning("Aggiungi almeno un partecipante dal pannello sopra!")
-else:
-  with st.form("carpool_form"):
-    col1, col2 = st.columns(2)
-    with col1:
-      viaggio_data = st.date_input("Data", value=date.today())
-    with col2:
-      autista = st.selectbox("Chi ha guidato?", membri)
+    if not membri:
+      st.warning("Aggiungi almeno un partecipante dal pannello sopra!")
+    else:
+      with st.form("carpool_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+          viaggio_data = st.date_input("Data", value=date.today())
+        with col2:
+          autista = st.selectbox("Chi ha guidato?", membri)
 
-    passeggeri_disponibili = [m for m in membri if m != autista]
-    passeggeri_scelti = st.multiselect(
-        "Passeggeri a bordo", passeggeri_disponibili
-    )
+        passeggeri_disponibili = [m for m in membri if m != autista]
+        passeggeri_scelti = st.multiselect(
+            "Passeggeri a bordo", passeggeri_disponibili
+        )
 
-    submit_button = st.form_submit_button(label="Registra Viaggio")
+        submit_button = st.form_submit_button(label="Registra Viaggio")
 
-    if submit_button:
-      # Assegniamo un ID progressivo basato sul timestamp o sul numero di elementi
-       nuovo_id = (
-          max([v.get("id", 0) for v in raw_viaggi], default=0) + 1
-      )
-      nuovo_viaggio = {
-          "id": nuovo_id,
-          "data": str(viaggio_data),
-          "autista": autista,
-          "passeggeri": passeggeri_scelti,
-      }
-      raw_viaggi.append(nuovo_viaggio)
-      db_data["viaggi"] = raw_viaggi
-      save_data_to_github(db_data)
-      st.success("Viaggio registrato e salvato su GitHub!")
-      st.rerun()
+        if submit_button:
+          nuovo_id = (
+              max([v.get("id", 0) for v in raw_viaggi], default=0) + 1
+          )
+          nuovo_viaggio = {
+              "id": nuovo_id,
+              "data": str(viaggio_data),
+              "autista": autista,
+              "passeggeri": passeggeri_scelti,
+          }
+          raw_viaggi.append(nuovo_viaggio)
+          db_data["viaggi"] = raw_viaggi
+          save_data_to_github(db_data)
+          st.success("Viaggio registrato e salvato su GitHub!")
+          st.rerun()
 
 
 # --- SEZIONE 3: BILANCIO E DEBITI INCROCIATI ---
