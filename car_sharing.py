@@ -1,6 +1,5 @@
 from datetime import date
 import json
-import io
 import os
 from github import Github
 import pandas as pd
@@ -17,30 +16,37 @@ else:
   JSON_FILENAME = "viaggi.json"
 
 
-# Funzioni per leggere e scrivere su GitHub (o in locale se sviluppi sul PC)
 def load_data_from_github():
+  default_data = {
+      "partecipanti": ["Andrea s.", "Jack", "Miriam", "Sacco"],
+      "viaggi": [],
+  }
   if GITHUB_TOKEN and REPO_NAME:
     try:
       g = Github(GITHUB_TOKEN)
       repo = g.get_repo(REPO_NAME)
       file_content = repo.get_contents(JSON_FILENAME)
       data = json.loads(file_content.decoded_content.decode("utf-8"))
-      return data
-    except Exception as e:
-      # Se il file non esiste ancora su GitHub, restituisce una struttura vuota
-      return {
-          "partecipanti": ["Daniele", "Andrea", "Giacomo", "Miriam"],
-          "viaggi": [],
-      }
+      if isinstance(data, dict):
+        if "partecipanti" not in data:
+          data["partecipanti"] = default_data["partecipanti"]
+        if "viaggi" not in data:
+          data["viaggi"] = []
+        return data
+      else:
+        return default_data
+    except Exception:
+      return default_data
   else:
-    # Modalità locale (fallback se testato sul PC senza secrets)
     if os.path.exists(JSON_FILENAME):
-      with open(JSON_FILENAME, "r", encoding="utf-8") as f:
-        return json.load(f)
-    return {
-        "partecipanti": ["Daniele", "Andrea", "Giacomo", "Miriam"],
-        "viaggi": [],
-    }
+      try:
+        with open(JSON_FILENAME, "r", encoding="utf-8") as f:
+          data = json.load(f)
+          if isinstance(data, dict):
+            return data
+      except Exception:
+        pass
+    return default_data
 
 
 def save_data_to_github(data_dict):
@@ -61,7 +67,6 @@ def save_data_to_github(data_dict):
           JSON_FILENAME, "Creazione file dati car pooling", json_string
       )
   else:
-    # Salvataggio locale in assenza di secrets
     with open(JSON_FILENAME, "w", encoding="utf-8") as f:
       f.write(json_string)
 
@@ -80,8 +85,7 @@ st.write(
     "Dati salvati in modo sicuro su GitHub: sempre persistenti e modificabili!"
 )
 
-
-# --- SEZIONE 1: GESTIONE PARTECIPANTI ---
+# --- SEZIONE 1: GESTIONE PARTECIPANTI (STAND ALONE NELL'EXPANDER) ---
 with st.expander("👥 Gestisci il gruppo (Aggiungi / Rimuovi Colleghi)"):
   col_p1, col_p2 = st.columns(2)
 
@@ -112,42 +116,43 @@ with st.expander("👥 Gestisci il gruppo (Aggiungi / Rimuovi Colleghi)"):
           st.success(f"'{membro_da_rimuovere}' rimosso!")
           st.rerun()
 
+st.markdown("---")
 
-# --- SEZIONE 2: REGISTRA NUOVO VIAGGIO ---
-    st.subheader("📝 Registra il viaggio di oggi")
+# --- SEZIONE 2: REGISTRA NUOVO VIAGGIO (STAND ALONE FUORI DALL'EXPANDER) ---
+st.subheader("📝 Registra il viaggio di oggi")
 
-    if not membri:
-      st.warning("Aggiungi almeno un partecipante dal pannello sopra!")
-    else:
-      with st.form("carpool_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-          viaggio_data = st.date_input("Data", value=date.today())
-        with col2:
-          autista = st.selectbox("Chi ha guidato?", membri)
+if not membri:
+  st.warning("Aggiungi almeno un partecipante dal pannello sopra!")
+else:
+  with st.form("carpool_form"):
+    col1, col2 = st.columns(2)
+    with col1:
+      viaggio_data = st.date_input("Data", value=date.today())
+    with col2:
+      autista = st.selectbox("Chi ha guidato?", membri)
 
-        passeggeri_disponibili = [m for m in membri if m != autista]
-        passeggeri_scelti = st.multiselect(
-            "Passeggeri a bordo", passeggeri_disponibili
-        )
+    passeggeri_disponibili = [m for m in membri if m != autista]
+    passeggeri_scelti = st.multiselect(
+        "Passeggeri a bordo", passeggeri_disponibili
+    )
 
-        submit_button = st.form_submit_button(label="Registra Viaggio")
+    submit_button = st.form_submit_button(label="Registra Viaggio")
 
-        if submit_button:
-          nuovo_id = (
-              max([v.get("id", 0) for v in raw_viaggi], default=0) + 1
-          )
-          nuovo_viaggio = {
-              "id": nuovo_id,
-              "data": str(viaggio_data),
-              "autista": autista,
-              "passeggeri": passeggeri_scelti,
-          }
-          raw_viaggi.append(nuovo_viaggio)
-          db_data["viaggi"] = raw_viaggi
-          save_data_to_github(db_data)
-          st.success("Viaggio registrato e salvato su GitHub!")
-          st.rerun()
+    if submit_button:
+      nuovo_id = (
+          max([v.get("id", 0) for v in raw_viaggi], default=0) + 1
+      )
+      nuovo_viaggio = {
+          "id": nuovo_id,
+          "data": str(viaggio_data),
+          "autista": autista,
+          "passeggeri": passeggeri_scelti,
+      }
+      raw_viaggi.append(nuovo_viaggio)
+      db_data["viaggi"] = raw_viaggi
+      save_data_to_github(db_data)
+      st.success("Viaggio registrato e salvato su GitHub!")
+      st.rerun()
 
 
 # --- SEZIONE 3: BILANCIO E DEBITI INCROCIATI ---
