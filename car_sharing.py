@@ -118,27 +118,29 @@ with st.expander("👥 Gestisci il gruppo (Aggiungi / Rimuovi Colleghi)"):
 
 st.markdown("---")
 
-# --- SEZIONE 2: REGISTRA NUOVO VIAGGIO (STAND ALONE FUORI DALL'EXPANDER) ---
+# --- SEZIONE 2: REGISTRA NUOVO VIAGGIO (AGGIORNAMENTO DINAMICO) ---
 st.subheader("📝 Registra il viaggio di oggi")
 
 if not membri:
   st.warning("Aggiungi almeno un partecipante dal pannello sopra!")
 else:
-  with st.form("carpool_form"):
-    col1, col2 = st.columns(2)
-    with col1:
-      viaggio_data = st.date_input("Data", value=date.today())
-    with col2:
-      autista = st.selectbox("Chi ha guidato?", membri)
+  col1, col2 = st.columns(2)
+  with col1:
+    viaggio_data = st.date_input("Data", value=date.today(), key="viaggio_data_input")
+  with col2:
+    # Appena cambi autista qui, Streamlit rinfresca la pagina e aggiorna la multiselect sotto
+    autista = st.selectbox("Chi ha guidato?", membri, key="autista_select")
 
-    passeggeri_disponibili = [m for m in membri if m != autista]
-    passeggeri_scelti = st.multiselect(
-        "Passeggeri a bordo", passeggeri_disponibili
-    )
+  # I passeggeri escludono automaticamente l'autista selezionato in tempo reale
+  passeggeri_disponibili = [m for m in membri if m != autista]
+  passeggeri_scelti = st.multiselect(
+      "Passeggeri a bordo", passeggeri_disponibili, key="passeggeri_multiselect"
+  )
 
-    submit_button = st.form_submit_button(label="Registra Viaggio")
-
-    if submit_button:
+  if st.button("Registra Viaggio", type="primary"):
+    if not passeggeri_scelti:
+      st.warning("Seleziona almeno un passeggero!")
+    else:
       nuovo_id = (
           max([v.get("id", 0) for v in raw_viaggi], default=0) + 1
       )
